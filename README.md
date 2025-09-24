@@ -24,3 +24,13 @@ bun run build
 bun test
 ```
 
+## Publish
+
+```bash
+npm login
+
+bun run prepublishOnly
+
+npm publish
+```
+
