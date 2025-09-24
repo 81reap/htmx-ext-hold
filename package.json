@@ -1,6 +1,6 @@
 {
   "name": "htmx-ext-hold",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "An htmx extension to trigger events on 'hold' (mousedown/touchstart for a duration)",
   "module": "dist/index.mjs",
   "main": "dist/index.js",
@@ -8,7 +8,7 @@
   "type": "module",
   "scripts": {
     "build": "bun run build:js && bun run build:types",
-    "build:js": "bun build src/index.ts --outdir ./dist --target browser --format esm --outfile index.mjs && bun build src/index.ts --outdir ./dist --target browser --format cjs --outfile index.js",
+    "build:js": "bun build src/index.ts --target browser --format esm --outfile dist/index.mjs && bun build src/index.ts --target browser --format cjs --outfile dist/index.js",
     "build:types": "bunx tsc --emitDeclarationOnly --outDir dist",
     "test": "bun test",
     "prepublishOnly": "bun run build"
