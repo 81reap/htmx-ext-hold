@@ -1,12 +1,36 @@
 {
   "name": "htmx-ext-hold",
-  "module": "index.ts",
+  "version": "0.0.1",
+  "description": "An htmx extension to trigger events on 'hold' (mousedown/touchstart for a duration)",
+  "module": "dist/index.mjs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "type": "module",
-  "private": true,
+  "scripts": {
+    "build": "bun run build:js && bun run build:types",
+    "build:js": "bun build src/index.ts --outdir ./dist --target browser --format esm --outfile index.mjs && bun build src/index.ts --outdir ./dist --target browser --format cjs --outfile index.js",
+    "build:types": "bunx tsc --emitDeclarationOnly --outDir dist",
+    "test": "bun test",
+    "prepublishOnly": "bun run build"
+  },
+  "keywords": [
+    "htmx",
+    "extension",
+    "hold",
+    "longpress"
+  ],
+  "author": "Prayag Bhakar [@81reap]",
+  "license": "BSD-3-Clause",
   "devDependencies": {
     "@types/bun": "latest"
   },
   "peerDependencies": {
-    "typescript": "^5"
-  }
+    "typescript": "^5",
+    "htmx.org": "^2.0.7"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ]
 }
