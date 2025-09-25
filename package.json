@@ -1,38 +1,38 @@
 {
-  "name": "htmx-ext-hold",
-  "version": "0.0.2",
-  "description": "An htmx extension to trigger events on 'hold' (mousedown/touchstart for a duration)",
-  "module": "dist/index.mjs",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
-  "type": "module",
-  "scripts": {
-    "build": "bun run build:js && bun run build:types",
-    "build:js": "bun build src/index.ts --target browser --format esm --outfile dist/index.mjs && bun build src/index.ts --target browser --format cjs --outfile dist/index.js",
-    "build:types": "bunx tsc --emitDeclarationOnly --outDir dist",
-    "test": "bun test",
-    "lint": "biome check src test --write",
-    "prepublishOnly": "bun run build"
-  },
-  "keywords": [
-    "htmx",
-    "extension",
-    "hold",
-    "longpress"
-  ],
-  "author": "Prayag Bhakar [@81reap]",
-  "license": "BSD-3-Clause",
-  "devDependencies": {
-    "@biomejs/biome": "2.2.4",
-    "@types/bun": "latest"
-  },
-  "peerDependencies": {
-    "typescript": "^5",
-    "htmx.org": "^2.0.7"
-  },
-  "files": [
-    "dist",
-    "README.md",
-    "LICENSE"
-  ]
+	"name": "htmx-ext-hold",
+	"version": "0.0.2",
+	"description": "An htmx extension to trigger events on 'hold' (mousedown/touchstart for a duration)",
+	"module": "dist/index.mjs",
+	"main": "dist/index.js",
+	"types": "dist/index.d.ts",
+	"type": "module",
+	"scripts": {
+		"build": "bun run build:js && bun run build:types",
+		"build:js": "bun build src/index.ts --target browser --format esm --outfile dist/index.mjs && bun build src/index.ts --target browser --format cjs --outfile dist/index.js",
+		"build:types": "bunx tsc --emitDeclarationOnly --outDir dist",
+		"test": "bun test",
+		"lint": "biome check . --write",
+		"prepublishOnly": "bun run build"
+	},
+	"keywords": [
+		"htmx",
+		"extension",
+		"hold",
+		"longpress"
+	],
+	"author": "Prayag Bhakar [@81reap]",
+	"license": "BSD-3-Clause",
+	"devDependencies": {
+		"@biomejs/biome": "2.2.4",
+		"@types/bun": "latest"
+	},
+	"peerDependencies": {
+		"typescript": "^5",
+		"htmx.org": "^2.0.7"
+	},
+	"files": [
+		"dist",
+		"README.md",
+		"LICENSE"
+	]
 }
