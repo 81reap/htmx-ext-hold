@@ -1,15 +1,16 @@
+import type htmx from "htmx.org";
 import type { HtmxExtension } from "htmx.org";
 
 function registerHoldExtension() {
-	const htmx =
-		(typeof window !== "undefined" && window.htmx) ||
-		(typeof globalThis !== "undefined" && (globalThis as any).htmx);
-	if (!htmx) {
+	const htmxLive: typeof htmx | undefined =
+		window?.htmx ||
+		(globalThis as typeof globalThis & { htmx?: typeof htmx }).htmx;
+	if (!htmxLive) {
 		console.error("htmx is not available.");
 		return;
 	}
 
-	htmx.defineExtension("hold", {
+	htmxLive.defineExtension("hold", {
 		onEvent: (name: string, evt: CustomEvent) => {
 			if (name === "htmx:afterProcessNode") {
 				const elt = evt.detail.elt as HTMLElement;
@@ -17,16 +18,16 @@ function registerHoldExtension() {
 					elt.getAttribute("hx-trigger") || elt.getAttribute("data-hx-trigger");
 
 				if (triggerSpec?.includes("hold") && triggerSpec?.includes("delay")) {
-					if ((elt as any)._holdSetup) return;
-					(elt as any)._holdSetup = true;
+					if (elt._holdSetup) return;
+					elt._holdSetup = true;
 
 					const startHold = (e: Event) => {
 						e.preventDefault();
-						htmx.trigger(elt, "hold");
+						htmxLive.trigger(elt, "hold");
 					};
 
 					const cancelHold = () => {
-						const internalData = (elt as any)["htmx-internal-data"];
+						const internalData = elt["htmx-internal-data"];
 						if (internalData?.delayed != null) {
 							clearTimeout(internalData.delayed);
 							internalData.delayed = null;
@@ -47,10 +48,10 @@ function registerHoldExtension() {
 }
 
 // Auto-register if htmx is already available, otherwise wait for it
-const htmx =
+const htmxLive =
 	(typeof window !== "undefined" && window.htmx) ||
 	(typeof globalThis !== "undefined" && (globalThis as any).htmx);
-if (htmx) {
+if (htmxLive) {
 	registerHoldExtension();
 } else if (typeof window !== "undefined") {
 	document.addEventListener("htmx:load", registerHoldExtension);
