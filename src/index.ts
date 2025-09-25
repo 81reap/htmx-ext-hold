@@ -1,9 +1,9 @@
-import type { HtmxExtension, HtmxResponseInfo } from "htmx.org";
-
-type HtmxEvent = Event & { detail: HtmxResponseInfo };
+import type { HtmxExtension } from "htmx.org";
 
 function registerHoldExtension() {
-	const htmx = window?.htmx || (globalThis as any)?.htmx;
+	const htmx =
+		(typeof window !== "undefined" && window.htmx) ||
+		(typeof globalThis !== "undefined" && (globalThis as any).htmx);
 	if (!htmx) {
 		console.error("htmx is not available.");
 		return;
@@ -16,32 +16,20 @@ function registerHoldExtension() {
 				const triggerSpec =
 					elt.getAttribute("hx-trigger") || elt.getAttribute("data-hx-trigger");
 
-				if (triggerSpec?.includes("hold")) {
+				if (triggerSpec?.includes("hold") && triggerSpec?.includes("delay")) {
 					if ((elt as any)._holdSetup) return;
 					(elt as any)._holdSetup = true;
 
-					// Parse delay from triggerSpec, e.g., 'hold delay:500ms' -> 500
-					let delay = 500; // default 500ms
-					const delayMatch = triggerSpec.match(/hold\s+delay:(\d+)ms/);
-					if (delayMatch?.[1]) {
-						delay = parseInt(delayMatch[1], 10);
-					}
-
-					let holdTimeout: number | null = null;
-
 					const startHold = (e: Event) => {
 						e.preventDefault();
-						if (holdTimeout != null) clearTimeout(holdTimeout);
-						holdTimeout = setTimeout(() => {
-							htmx.trigger(elt, "hold");
-							holdTimeout = null;
-						}, delay) as any;
+						htmx.trigger(elt, "hold");
 					};
 
 					const cancelHold = () => {
-						if (holdTimeout != null) {
-							clearTimeout(holdTimeout);
-							holdTimeout = null;
+						const internalData = (elt as any)["htmx-internal-data"];
+						if (internalData?.delayed != null) {
+							clearTimeout(internalData.delayed);
+							internalData.delayed = null;
 						}
 					};
 
@@ -60,7 +48,7 @@ function registerHoldExtension() {
 
 // Auto-register if htmx is already available, otherwise wait for it
 const htmx =
-	(window?.htmx) ||
+	(typeof window !== "undefined" && window.htmx) ||
 	(typeof globalThis !== "undefined" && (globalThis as any).htmx);
 if (htmx) {
 	registerHoldExtension();
