@@ -11,6 +11,7 @@
     "build:js": "bun build src/index.ts --target browser --format esm --outfile dist/index.mjs && bun build src/index.ts --target browser --format cjs --outfile dist/index.js",
     "build:types": "bunx tsc --emitDeclarationOnly --outDir dist",
     "test": "bun test",
+    "lint": "biome check src test --write",
     "prepublishOnly": "bun run build"
   },
   "keywords": [
@@ -22,6 +23,7 @@
   "author": "Prayag Bhakar [@81reap]",
   "license": "BSD-3-Clause",
   "devDependencies": {
+    "@biomejs/biome": "2.2.4",
     "@types/bun": "latest"
   },
   "peerDependencies": {
