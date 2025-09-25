@@ -1,6 +1,6 @@
 {
 	"name": "htmx-ext-hold",
-	"version": "0.0.2",
+	"version": "0.1.0",
 	"description": "An htmx extension to trigger events on 'hold' (mousedown/touchstart for a duration)",
 	"module": "dist/index.mjs",
 	"main": "dist/index.js",
