@@ -1,18 +1,11 @@
-declare global {
-	interface Window {
-		htmx: any; // Or a more specific htmx type if you have it
-	}
-}
+import type { HtmxExtension, HtmxResponseInfo } from "htmx.org";
 
-// Ensure htmx is available before defining the extension
+type HtmxEvent = Event & { detail: HtmxResponseInfo };
+
 function registerHoldExtension() {
-	const htmx =
-		(window?.htmx) ||
-		(typeof globalThis !== "undefined" && (globalThis as any).htmx);
+	const htmx = window?.htmx || (globalThis as any)?.htmx;
 	if (!htmx) {
-		console.warn(
-			"htmx is not available. The 'hold' extension cannot be registered.",
-		);
+		console.error("htmx is not available.");
 		return;
 	}
 
@@ -62,7 +55,7 @@ function registerHoldExtension() {
 			}
 			return true;
 		},
-	});
+	} as HtmxExtension);
 }
 
 // Auto-register if htmx is already available, otherwise wait for it
