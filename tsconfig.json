@@ -13,6 +13,7 @@
 		"allowImportingTsExtensions": true,
 		"verbatimModuleSyntax": true,
 		"declaration": true,
+		"outDir": "dist",
 
 		// Best practices
 		"strict": true,
