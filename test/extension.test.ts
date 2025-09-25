@@ -149,3 +149,161 @@ test("handles various delay formats in trigger spec", () => {
 		expect(mockHtmx.trigger).toHaveBeenCalledWith(element, "hold");
 	});
 });
+
+test("uses data-hx-trigger when hx-trigger is not present", () => {
+	const extension = setupHoldExtension();
+	const element = createMockElement();
+	element.setAttribute("data-hx-trigger", "hold delay:500ms");
+
+	simulateAfterProcessNode(extension, element);
+	simulateMouseDown(element);
+
+	expect(mockHtmx.trigger).toHaveBeenCalledWith(element, "hold");
+});
+
+test("prefers hx-trigger over data-hx-trigger", () => {
+	const extension = setupHoldExtension();
+	const element = createMockElement();
+	element.setAttribute("hx-trigger", "hold delay:500ms");
+	element.setAttribute("data-hx-trigger", "click"); // This should be ignored
+
+	simulateAfterProcessNode(extension, element);
+	simulateMouseDown(element);
+
+	expect(mockHtmx.trigger).toHaveBeenCalledWith(element, "hold");
+});
+
+test("skips elements already processed", () => {
+	const extension = setupHoldExtension();
+	const element = createElementWithTrigger("hold delay:500ms");
+
+	// First processing
+	simulateAfterProcessNode(extension, element);
+	expect((element as any)._holdSetup).toBe(true);
+
+	// Reset mock to check if trigger is called again
+	mockHtmx.trigger = mock();
+
+	// Second processing should be skipped
+	simulateAfterProcessNode(extension, element);
+	simulateMouseDown(element);
+
+	// Should still work (listeners were already set up)
+	expect(mockHtmx.trigger).toHaveBeenCalledWith(element, "hold");
+});
+
+test("handles touchcancel events", () => {
+	const extension = setupHoldExtension();
+	const element = createElementWithTrigger("hold delay:500ms");
+
+	simulateAfterProcessNode(extension, element);
+
+	// Touch start
+	simulateTouchStart(element);
+	expect(mockHtmx.trigger).toHaveBeenCalledWith(element, "hold");
+
+	// Touch cancel - should not cause errors
+	const touchCancelEvent = { type: "touchcancel" } as any;
+	element.dispatchEvent(touchCancelEvent);
+});
+
+test("ignores elements with no trigger attributes", () => {
+	const extension = setupHoldExtension();
+	const element = createMockElement();
+
+	simulateAfterProcessNode(extension, element);
+
+	expect((element as any)._holdSetup).toBeUndefined();
+});
+
+test("is case sensitive for 'hold' keyword", () => {
+	const extension = setupHoldExtension();
+
+	// Test with uppercase 'Hold' - should not match
+	const element = createElementWithTrigger("Hold delay:500ms");
+	simulateAfterProcessNode(extension, element);
+
+	expect((element as any)._holdSetup).toBeUndefined();
+});
+
+test("handles multiple delay specifications", () => {
+	const extension = setupHoldExtension();
+
+	// Multiple delays - should still work as long as "hold" and "delay" are present
+	const element = createElementWithTrigger("hold delay:100ms delay:200ms");
+	simulateAfterProcessNode(extension, element);
+	simulateMouseDown(element);
+
+	expect(mockHtmx.trigger).toHaveBeenCalledWith(element, "hold");
+});
+
+test("handles complex trigger specifications", () => {
+	const extension = setupHoldExtension();
+
+	const complexTriggers = [
+		"click, hold delay:500ms, mouseover",
+		"hold delay:1000ms changed, submit",
+		"keydown[key=='Enter'], hold delay:300ms",
+	];
+
+	complexTriggers.forEach((trigger) => {
+		const element = createElementWithTrigger(trigger);
+		simulateAfterProcessNode(extension, element);
+		simulateMouseDown(element);
+		expect(mockHtmx.trigger).toHaveBeenCalledWith(element, "hold");
+	});
+});
+
+test("preventDefault is called on hold events", () => {
+	const extension = setupHoldExtension();
+	const element = createElementWithTrigger("hold delay:500ms");
+
+	simulateAfterProcessNode(extension, element);
+
+	const mouseEvent = simulateMouseDown(element);
+	expect(mouseEvent.preventDefault).toHaveBeenCalled();
+
+	const touchEvent = simulateTouchStart(element);
+	expect(touchEvent.preventDefault).toHaveBeenCalled();
+});
+
+test("multiple elements are processed independently", () => {
+	const extension = setupHoldExtension();
+
+	const element1 = createElementWithTrigger("hold delay:500ms");
+	const element2 = createElementWithTrigger("click"); // No hold
+	const element3 = createElementWithTrigger("hold delay:1000ms");
+
+	simulateAfterProcessNode(extension, element1);
+	simulateAfterProcessNode(extension, element2);
+	simulateAfterProcessNode(extension, element3);
+
+	expect((element1 as any)._holdSetup).toBe(true);
+	expect((element2 as any)._holdSetup).toBeUndefined();
+	expect((element3 as any)._holdSetup).toBe(true);
+
+	// Test that each works independently
+	simulateMouseDown(element1);
+	expect(mockHtmx.trigger).toHaveBeenCalledWith(element1, "hold");
+
+	simulateMouseDown(element3);
+	expect(mockHtmx.trigger).toHaveBeenCalledWith(element3, "hold");
+});
+
+test("non-matching events don't trigger hold", () => {
+	const extension = setupHoldExtension();
+	const element = createElementWithTrigger("hold delay:500ms");
+
+	simulateAfterProcessNode(extension, element);
+
+	// Test various non-matching events
+	const events = ["click", "mouseover", "keydown", "scroll"];
+
+	events.forEach((eventType) => {
+		const event = { type: eventType } as any;
+		element.dispatchEvent(event);
+	});
+
+	// Hold should not have been triggered
+	expect(mockHtmx.trigger).not.toHaveBeenCalled();
+});
