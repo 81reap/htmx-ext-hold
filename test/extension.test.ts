@@ -14,6 +14,7 @@ type MockElement = {
 	setAttribute: (name: string, value: string) => void;
 	getAttribute: (name: string) => string | null;
 	dispatchEvent: (event: Event) => void;
+	style: { setProperty: (prop: string, value: string) => void };
 	_holdSetup?: boolean;
 };
 
@@ -24,6 +25,7 @@ let originalHtmx: typeof htmx | undefined;
 function createMockElement(): MockElement {
 	const listeners: { [key: string]: ((event: Event) => void)[] } = {};
 	const attributes: { [key: string]: string } = {};
+	const styleProperties: { [key: string]: string } = {};
 	return {
 		addEventListener: (event: string, handler: (event: Event) => void) => {
 			if (!listeners[event]) listeners[event] = [];
@@ -40,6 +42,11 @@ function createMockElement(): MockElement {
 					handler(event);
 				});
 			}
+		},
+		style: {
+			setProperty: (prop: string, value: string) => {
+				styleProperties[prop] = value;
+			},
 		},
 	};
 }
@@ -86,6 +93,16 @@ beforeEach(() => {
 			mockHtmx.definedExtensions[name] = extension;
 		}),
 		trigger: mock(),
+		parseInterval: mock((str: string) => {
+			const match = str.match(/^(\d+)(ms|s)?$/);
+			if (match && match[1]) {
+				const num = parseInt(match[1], 10);
+				return match[2] === "s" ? num * 1000 : num;
+			}
+			return undefined;
+		}),
+		addClass: mock(),
+		removeClass: mock(),
 		definedExtensions: {},
 	};
 	(globalThis as any).htmx = mockHtmx;
@@ -117,40 +134,32 @@ test("sets up listeners for elements with hold delay trigger", () => {
 
 	const event = simulateMouseDown(element);
 	expect(event.preventDefault).toHaveBeenCalled();
-	expect(mockHtmx.trigger).toHaveBeenCalledWith(element, "hold");
+	expect(mockHtmx.addClass).toHaveBeenCalledWith(element, "htmx-hold-active");
 });
 
-test("triggers hold on mousedown for hold delay elements", () => {
+test("starts hold progress on mousedown for hold delay elements", () => {
 	const extension = setupHoldExtension();
 	const element = createElementWithTrigger("hold delay:500ms");
 
 	simulateAfterProcessNode(extension, element);
 	simulateMouseDown(element);
 
-	expect(mockHtmx.trigger).toHaveBeenCalledWith(element, "hold");
+	expect(mockHtmx.addClass).toHaveBeenCalledWith(element, "htmx-hold-active");
 });
 
-test("triggers hold on touchstart for hold delay elements", () => {
+test("starts hold progress on touchstart for hold delay elements", () => {
 	const extension = setupHoldExtension();
 	const element = createElementWithTrigger("hold delay:300ms");
 
 	simulateAfterProcessNode(extension, element);
 	simulateTouchStart(element);
 
-	expect(mockHtmx.trigger).toHaveBeenCalledWith(element, "hold");
+	expect(mockHtmx.addClass).toHaveBeenCalledWith(element, "htmx-hold-active");
 });
 
 test("ignores elements without hold trigger", () => {
 	const extension = setupHoldExtension();
 	const element = createElementWithTrigger("click");
-
-	simulateAfterProcessNode(extension, element);
-	expect(element._holdSetup).toBeUndefined();
-});
-
-test("ignores elements with hold but no delay", () => {
-	const extension = setupHoldExtension();
-	const element = createElementWithTrigger("hold");
 
 	simulateAfterProcessNode(extension, element);
 	expect(element._holdSetup).toBeUndefined();
@@ -165,15 +174,24 @@ test("handles various delay formats in trigger spec", () => {
 		"hold delay:200ms, click",
 		"click, hold delay:600ms",
 		"hold delay:1000ms changed",
-		"hold delay:invalidms",
 	];
 
 	testCases.forEach((trigger) => {
 		const element = createElementWithTrigger(trigger);
 		simulateAfterProcessNode(extension, element);
 		simulateMouseDown(element);
-		expect(mockHtmx.trigger).toHaveBeenCalledWith(element, "hold");
+		expect(mockHtmx.addClass).toHaveBeenCalledWith(element, "htmx-hold-active");
 	});
+});
+
+test("uses default 500ms delay when hold trigger has no delay specified", () => {
+	const extension = setupHoldExtension();
+	const element = createElementWithTrigger("hold");
+
+	simulateAfterProcessNode(extension, element);
+	simulateMouseDown(element);
+
+	expect(mockHtmx.addClass).toHaveBeenCalledWith(element, "htmx-hold-active");
 });
 
 test("uses data-hx-trigger when hx-trigger is not present", () => {
@@ -184,7 +202,7 @@ test("uses data-hx-trigger when hx-trigger is not present", () => {
 	simulateAfterProcessNode(extension, element);
 	simulateMouseDown(element);
 
-	expect(mockHtmx.trigger).toHaveBeenCalledWith(element, "hold");
+	expect(mockHtmx.addClass).toHaveBeenCalledWith(element, "htmx-hold-active");
 });
 
 test("prefers hx-trigger over data-hx-trigger", () => {
@@ -196,7 +214,7 @@ test("prefers hx-trigger over data-hx-trigger", () => {
 	simulateAfterProcessNode(extension, element);
 	simulateMouseDown(element);
 
-	expect(mockHtmx.trigger).toHaveBeenCalledWith(element, "hold");
+	expect(mockHtmx.addClass).toHaveBeenCalledWith(element, "htmx-hold-active");
 });
 
 test("skips elements already processed", () => {
@@ -215,7 +233,7 @@ test("skips elements already processed", () => {
 	simulateMouseDown(element);
 
 	// Should still work (listeners were already set up)
-	expect(mockHtmx.trigger).toHaveBeenCalledWith(element, "hold");
+	expect(mockHtmx.addClass).toHaveBeenCalledWith(element, "htmx-hold-active");
 });
 
 test("handles touchcancel events", () => {
@@ -226,7 +244,7 @@ test("handles touchcancel events", () => {
 
 	// Touch start
 	simulateTouchStart(element);
-	expect(mockHtmx.trigger).toHaveBeenCalledWith(element, "hold");
+	expect(mockHtmx.addClass).toHaveBeenCalledWith(element, "htmx-hold-active");
 
 	// Touch cancel - should not cause errors
 	element.dispatchEvent(new Event("touchcancel"));
@@ -259,7 +277,7 @@ test("handles multiple delay specifications", () => {
 	simulateAfterProcessNode(extension, element);
 	simulateMouseDown(element);
 
-	expect(mockHtmx.trigger).toHaveBeenCalledWith(element, "hold");
+	expect(mockHtmx.addClass).toHaveBeenCalledWith(element, "htmx-hold-active");
 });
 
 test("handles complex trigger specifications", () => {
@@ -275,7 +293,7 @@ test("handles complex trigger specifications", () => {
 		const element = createElementWithTrigger(trigger);
 		simulateAfterProcessNode(extension, element);
 		simulateMouseDown(element);
-		expect(mockHtmx.trigger).toHaveBeenCalledWith(element, "hold");
+		expect(mockHtmx.addClass).toHaveBeenCalledWith(element, "htmx-hold-active");
 	});
 });
 
@@ -309,10 +327,10 @@ test("multiple elements are processed independently", () => {
 
 	// Test that each works independently
 	simulateMouseDown(element1);
-	expect(mockHtmx.trigger).toHaveBeenCalledWith(element1, "hold");
+	expect(mockHtmx.addClass).toHaveBeenCalledWith(element1, "htmx-hold-active");
 
 	simulateMouseDown(element3);
-	expect(mockHtmx.trigger).toHaveBeenCalledWith(element3, "hold");
+	expect(mockHtmx.addClass).toHaveBeenCalledWith(element3, "htmx-hold-active");
 });
 
 test("non-matching events don't trigger hold", () => {

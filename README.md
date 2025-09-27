@@ -31,6 +31,7 @@ Enable the extension on your page:
 
 ```html
 <body hx-ext="hold">
+  <button hx-trigger="hold" hx-post="/action">Hold me for 500ms (default)</button>
   <button hx-trigger="hold delay:1000ms" hx-post="/action">Hold me for 1 second</button>
 </body>
 ```

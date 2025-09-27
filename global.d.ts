@@ -7,6 +7,10 @@ declare global {
 
 	interface HTMLElement {
 		_holdSetup?: boolean;
-		"htmx-internal-data"?: { delayed?: number | null };
+		"htmx-internal-data"?: {
+			delayed?: number | null;
+			holdInterval?: ReturnType<typeof setInterval> | null;
+			holdAnimationId?: number | null;
+		};
 	}
 }
