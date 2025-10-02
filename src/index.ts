@@ -1,114 +1,121 @@
-import type htmx from "htmx.org";
-
-// Static Global Vars
-const DEFAULT_HOLD_DELAY = 500; // in milliseconds
+const DEFAULT_HOLD_DELAY = 500; // milliseconds
 const CSS_HOLD_PROGRESS_VAR = "--hold-progress";
+const HOLD_ACTIVE_CLASS = "htmx-hold-active";
+const START_EVENTS = ["mousedown", "touchstart"] as const;
+const CANCEL_EVENTS = [
+	"mouseup",
+	"mouseleave",
+	"touchend",
+	"touchcancel",
+] as const;
+const HOLD_TRIGGER_PATTERN = /\bhold\b/;
+const DATA_PROGRESS_ATTR = "holdProgress";
 
-// Helper Functions
-function parseDelay(triggerSpec: string): number | null {
-	const match = triggerSpec.match(/hold\s+delay:(\d+(?:ms|s)?)/);
-	return htmxLive.parseInterval(match?.[1]) ?? null;
-};
+const processedElements = new WeakSet<HTMLElement>();
 
-// Extension Registration
+function parseDelay(
+	triggerSpec: string,
+	htmx: NonNullable<typeof window.htmx>,
+): number | null {
+	const match = triggerSpec.match(/hold\s+delay:(\d+(?:\.\d+)?(?:ms|s)?)/);
+	if (!match?.[1]) return null;
+	return htmx.parseInterval?.(match[1]) ?? null;
+}
+
+function registerElement(
+	elt: HTMLElement,
+	triggerSpec: string,
+	htmx: NonNullable<typeof window.htmx>,
+) {
+	if (processedElements.has(elt)) return;
+	const delay = parseDelay(triggerSpec, htmx) ?? DEFAULT_HOLD_DELAY;
+	let startTime: number | null = null;
+	let animationFrameId: number | null = null;
+	let holdTriggered = false;
+	let isActive = false;
+
+	const clearAnimation = () => {
+		if (animationFrameId !== null) {
+			cancelAnimationFrame(animationFrameId);
+			animationFrameId = null;
+		}
+	};
+
+	const updateProgress = () => {
+		if (startTime === null) return;
+		const elapsed = Date.now() - startTime;
+		const progress = Math.min(elapsed / delay, 1);
+		elt.style.setProperty(CSS_HOLD_PROGRESS_VAR, progress.toString());
+		elt.dataset[DATA_PROGRESS_ATTR] = Math.round(progress * 100).toString();
+
+		if (progress >= 1 && !holdTriggered) {
+			holdTriggered = true;
+			clearAnimation();
+			htmx.trigger?.(elt, "hold");
+		} else if (!holdTriggered) {
+			animationFrameId = requestAnimationFrame(updateProgress);
+		}
+	};
+
+	START_EVENTS.forEach((eventName) => {
+		elt.addEventListener(eventName, (event: Event) => {
+			if (isActive) return;
+			if (event.cancelable) event.preventDefault();
+			isActive = true;
+			holdTriggered = false;
+			startTime = Date.now();
+			htmx.addClass?.(elt, HOLD_ACTIVE_CLASS);
+			elt.style.setProperty(CSS_HOLD_PROGRESS_VAR, "0");
+			elt.dataset[DATA_PROGRESS_ATTR] = "0";
+			animationFrameId = requestAnimationFrame(updateProgress);
+		});
+	});
+
+	CANCEL_EVENTS.forEach((eventName) => {
+		elt.addEventListener(eventName, () => {
+			if (!isActive) return;
+			isActive = false;
+			startTime = null;
+			holdTriggered = false;
+			clearAnimation();
+			htmx.removeClass?.(elt, HOLD_ACTIVE_CLASS);
+			elt.style.setProperty(CSS_HOLD_PROGRESS_VAR, "0");
+			elt.dataset[DATA_PROGRESS_ATTR] = "0";
+		});
+	});
+
+	processedElements.add(elt);
+}
+
 function registerHoldExtension() {
-	let htmxLive: typeof htmx | undefined;
-	if (typeof window !== "undefined") {
-		htmxLive = window.htmx;
-	} else if (typeof globalThis !== "undefined") {
-		htmxLive = (globalThis as any).htmx;
-	}
-	if (!htmxLive) {
+	const htmx = window.htmx;
+	if (!htmx || typeof htmx.defineExtension !== "function") {
 		console.error("htmx is not available.");
 		return;
 	}
 
-	htmxLive.defineExtension("hold", {
-		onEvent: (name: string, evt: CustomEvent): boolean => {
-			if (name === "htmx:afterProcessNode") {
-				const elt = evt.detail.elt as HTMLElement;
-				const triggerSpec =
-					elt.getAttribute("hx-trigger") || elt.getAttribute("data-hx-trigger");
-
-				if (triggerSpec?.includes("hold")) {
-					const delay = parseDelay(triggerSpec) ?? DEFAULT_HOLD_DELAY;
-					if (elt._holdSetup) return true;
-					elt._holdSetup = true;
-
-					let startTime: number | null = null;
-					let triggered = false;
-
-					const updateProgress = () => {
-						if (startTime === null) return;
-						const elapsed = Date.now() - startTime;
-						const progress = Math.min(elapsed / delay, 1);
-						elt.style.setProperty(CSS_HOLD_PROGRESS_VAR, progress.toString());
-						if (progress >= 1 && !triggered) {
-							triggered = true;
-							htmxLive.trigger(elt, "hold");
-							const internalData = elt["htmx-internal-data"];
-							if (internalData?.holdAnimationId) {
-								cancelAnimationFrame(internalData.holdAnimationId);
-								internalData.holdAnimationId = null;
-							}
-						} else {
-							const internalData = elt["htmx-internal-data"];
-							if (internalData) {
-								internalData.holdAnimationId =
-									requestAnimationFrame(updateProgress);
-							}
-						}
-					};
-
-					const startHold = (e: Event) => {
-						e.preventDefault();
-						startTime = Date.now();
-						triggered = false;
-						htmxLive.addClass(elt, "htmx-hold-active");
-						elt.style.setProperty(CSS_HOLD_PROGRESS_VAR, "0");
-						const internalData = elt["htmx-internal-data"];
-						if (internalData) {
-							internalData.holdAnimationId =
-								requestAnimationFrame(updateProgress);
-						}
-					};
-
-					const cancelHold = () => {
-						const internalData = elt["htmx-internal-data"];
-						if (internalData?.holdAnimationId) {
-							cancelAnimationFrame(internalData.holdAnimationId);
-							internalData.holdAnimationId = null;
-						}
-						startTime = null;
-						triggered = false;
-						htmxLive.removeClass(elt, "htmx-hold-active");
-						elt.style.setProperty(CSS_HOLD_PROGRESS_VAR, "0");
-					};
-
-					elt.addEventListener("mousedown", startHold);
-					elt.addEventListener("touchstart", startHold);
-					elt.addEventListener("mouseup", cancelHold);
-					elt.addEventListener("mouseleave", cancelHold);
-					elt.addEventListener("touchend", cancelHold);
-					elt.addEventListener("touchcancel", cancelHold);
-				}
-			}
+	htmx.defineExtension("hold", {
+		onEvent(name: string, evt: CustomEvent) {
+			if (name !== "htmx:afterProcessNode") return true;
+			const elt = evt.detail.elt as HTMLElement | undefined;
+			if (!elt) return true;
+			const triggerSpec =
+				elt.getAttribute("hx-trigger") ?? elt.getAttribute("data-hx-trigger");
+			if (!triggerSpec || !HOLD_TRIGGER_PATTERN.test(triggerSpec)) return true;
+			registerElement(elt, triggerSpec, htmx);
 			return true;
 		},
 	});
 }
 
-// Auto-register if htmx is already available, otherwise wait for it
-const htmxLive =
-	(typeof window !== "undefined" && window.htmx) ||
-	(typeof globalThis !== "undefined" && (globalThis as any).htmx);
-if (htmxLive) {
-	registerHoldExtension();
-} else if (typeof window !== "undefined") {
-	document.addEventListener("htmx:load", registerHoldExtension);
-} else if (typeof globalThis !== "undefined") {
-	// For test environments
-	(globalThis as any).addEventListener?.("htmx:load", registerHoldExtension);
+if (typeof window !== "undefined") {
+	if (window.htmx) {
+		registerHoldExtension();
+	} else if (typeof document !== "undefined") {
+		document.addEventListener("htmx:load", registerHoldExtension, {
+			once: true,
+		});
+	}
 }
 
 export default registerHoldExtension;

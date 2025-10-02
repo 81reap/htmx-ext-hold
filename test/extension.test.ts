@@ -1,351 +1,315 @@
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
-import type htmx from "htmx.org";
 import type { HtmxExtension } from "htmx.org";
 import registerHoldExtension from "../src/index";
 
-type MockHtmx = Partial<typeof htmx> & {
+type MockHtmx = {
 	defineExtension: ReturnType<typeof mock>;
 	trigger: ReturnType<typeof mock>;
-	definedExtensions: Record<string, Partial<HtmxExtension>>;
-};
-
-type MockElement = {
-	addEventListener: (event: string, handler: (event: Event) => void) => void;
-	setAttribute: (name: string, value: string) => void;
-	getAttribute: (name: string) => string | null;
-	dispatchEvent: (event: Event) => void;
-	style: { setProperty: (prop: string, value: string) => void };
-	_holdSetup?: boolean;
+	addClass: ReturnType<typeof mock>;
+	removeClass: ReturnType<typeof mock>;
+	parseInterval: ReturnType<typeof mock>;
 };
 
 let mockHtmx: MockHtmx;
-let originalHtmx: typeof htmx | undefined;
+let holdExtension: Partial<HtmxExtension> | undefined;
+const HOLD_EVENT = "htmx:afterProcessNode";
 
-// Helper functions
-function createMockElement(): MockElement {
-	const listeners: { [key: string]: ((event: Event) => void)[] } = {};
-	const attributes: { [key: string]: string } = {};
-	const styleProperties: { [key: string]: string } = {};
-	return {
-		addEventListener: (event: string, handler: (event: Event) => void) => {
-			if (!listeners[event]) listeners[event] = [];
-			listeners[event].push(handler);
-		},
-		setAttribute: (name: string, value: string) => {
-			attributes[name] = value;
-		},
-		getAttribute: (name: string) => attributes[name] || null,
-		dispatchEvent: (event: Event) => {
-			const eventListeners = listeners[event.type];
-			if (eventListeners) {
-				eventListeners.forEach((handler) => {
-					handler(event);
-				});
-			}
-		},
-		style: {
-			setProperty: (prop: string, value: string) => {
-				styleProperties[prop] = value;
-			},
-		},
-	};
+function createHoldEvent(elt: HTMLElement) {
+	return new CustomEvent(HOLD_EVENT, { detail: { elt } });
 }
 
-function setupHoldExtension() {
-	registerHoldExtension();
-	return mockHtmx.definedExtensions.hold as Partial<HtmxExtension>;
-}
-
-function createElementWithTrigger(trigger: string) {
-	const element = createMockElement();
-	element.setAttribute("hx-trigger", trigger);
+function createElement(trigger?: string): HTMLElement {
+	const element = document.createElement("button");
+	if (trigger !== undefined) element.setAttribute("hx-trigger", trigger);
 	return element;
 }
 
-function simulateAfterProcessNode(
-	extension: Partial<HtmxExtension>,
-	element: MockElement,
-) {
-	const event = new CustomEvent("htmx:afterProcessNode", {
-		detail: { elt: element },
-	});
-	extension.onEvent?.("htmx:afterProcessNode", event);
-}
-
-function simulateMouseDown(element: MockElement) {
-	const event = new Event("mousedown");
-	event.preventDefault = mock();
+function dispatchStart(element: HTMLElement, type: "mousedown" | "touchstart") {
+	const event = new Event(type, { bubbles: true, cancelable: true });
 	element.dispatchEvent(event);
 	return event;
 }
 
-function simulateTouchStart(element: MockElement) {
-	const event = new Event("touchstart");
-	event.preventDefault = mock();
-	element.dispatchEvent(event);
-	return event;
+function dispatchCancel(element: HTMLElement, type: string) {
+	element.dispatchEvent(new Event(type, { bubbles: true }));
+}
+
+function setupExtension() {
+	if (!holdExtension?.onEvent) throw new Error("Hold extension not registered");
+	return holdExtension;
 }
 
 beforeEach(() => {
-	originalHtmx = (globalThis as any).htmx;
 	mockHtmx = {
 		defineExtension: mock((name: string, extension: Partial<HtmxExtension>) => {
-			mockHtmx.definedExtensions[name] = extension;
+			if (name === "hold") holdExtension = extension;
 		}),
 		trigger: mock(),
-		parseInterval: mock((str: string) => {
-			const match = str.match(/^(\d+)(ms|s)?$/);
-			if (match && match[1]) {
-				const num = parseInt(match[1], 10);
-				return match[2] === "s" ? num * 1000 : num;
-			}
-			return undefined;
-		}),
 		addClass: mock(),
 		removeClass: mock(),
-		definedExtensions: {},
+		parseInterval: mock((value: string) => {
+			const match = value.match(/^(\d+(?:\.\d+)?)(ms|s)?$/);
+			if (!match) return undefined;
+			const [, raw, unit] = match;
+			if (!raw) return undefined;
+			const base = Number.parseFloat(raw);
+			return unit === "s" ? base * 1000 : base;
+		}),
 	};
-	(globalThis as any).htmx = mockHtmx;
 
-	(globalThis as any).document = {
-		createElement: () => createMockElement(),
-	};
+	window.htmx = mockHtmx as unknown as typeof window.htmx;
+	registerHoldExtension();
 });
 
 afterEach(() => {
-	(globalThis as any).htmx = originalHtmx;
+	window.htmx = undefined;
+	holdExtension = undefined;
 });
 
-test("registers hold extension", () => {
-	registerHoldExtension();
+test("registers the hold extension with htmx", () => {
 	expect(mockHtmx.defineExtension).toHaveBeenCalledWith(
 		"hold",
-		expect.any(Object),
+		expect.objectContaining({ onEvent: expect.any(Function) }),
 	);
-	expect(mockHtmx.definedExtensions.hold).toBeDefined();
 });
 
-test("sets up listeners for elements with hold delay trigger", () => {
-	const extension = setupHoldExtension();
-	const element = createElementWithTrigger("click, hold delay:500ms");
+test("ignores elements without a hold trigger", () => {
+	const extension = setupExtension();
+	const element = createElement("click");
 
-	simulateAfterProcessNode(extension, element);
-	expect(element._holdSetup).toBe(true);
+	extension.onEvent?.(HOLD_EVENT, createHoldEvent(element));
+	dispatchStart(element, "mousedown");
 
-	const event = simulateMouseDown(element);
-	expect(event.preventDefault).toHaveBeenCalled();
-	expect(mockHtmx.addClass).toHaveBeenCalledWith(element, "htmx-hold-active");
-});
-
-test("starts hold progress on mousedown for hold delay elements", () => {
-	const extension = setupHoldExtension();
-	const element = createElementWithTrigger("hold delay:500ms");
-
-	simulateAfterProcessNode(extension, element);
-	simulateMouseDown(element);
-
-	expect(mockHtmx.addClass).toHaveBeenCalledWith(element, "htmx-hold-active");
-});
-
-test("starts hold progress on touchstart for hold delay elements", () => {
-	const extension = setupHoldExtension();
-	const element = createElementWithTrigger("hold delay:300ms");
-
-	simulateAfterProcessNode(extension, element);
-	simulateTouchStart(element);
-
-	expect(mockHtmx.addClass).toHaveBeenCalledWith(element, "htmx-hold-active");
-});
-
-test("ignores elements without hold trigger", () => {
-	const extension = setupHoldExtension();
-	const element = createElementWithTrigger("click");
-
-	simulateAfterProcessNode(extension, element);
-	expect(element._holdSetup).toBeUndefined();
-});
-
-test("handles various delay formats in trigger spec", () => {
-	const extension = setupHoldExtension();
-
-	// Test different positions and formats
-	const testCases = [
-		"hold delay:1000ms",
-		"hold delay:200ms, click",
-		"click, hold delay:600ms",
-		"hold delay:1000ms changed",
-	];
-
-	testCases.forEach((trigger) => {
-		const element = createElementWithTrigger(trigger);
-		simulateAfterProcessNode(extension, element);
-		simulateMouseDown(element);
-		expect(mockHtmx.addClass).toHaveBeenCalledWith(element, "htmx-hold-active");
-	});
-});
-
-test("uses default 500ms delay when hold trigger has no delay specified", () => {
-	const extension = setupHoldExtension();
-	const element = createElementWithTrigger("hold");
-
-	simulateAfterProcessNode(extension, element);
-	simulateMouseDown(element);
-
-	expect(mockHtmx.addClass).toHaveBeenCalledWith(element, "htmx-hold-active");
-});
-
-test("uses data-hx-trigger when hx-trigger is not present", () => {
-	const extension = setupHoldExtension();
-	const element = createMockElement();
-	element.setAttribute("data-hx-trigger", "hold delay:500ms");
-
-	simulateAfterProcessNode(extension, element);
-	simulateMouseDown(element);
-
-	expect(mockHtmx.addClass).toHaveBeenCalledWith(element, "htmx-hold-active");
-});
-
-test("prefers hx-trigger over data-hx-trigger", () => {
-	const extension = setupHoldExtension();
-	const element = createMockElement();
-	element.setAttribute("hx-trigger", "hold delay:500ms");
-	element.setAttribute("data-hx-trigger", "click"); // This should be ignored
-
-	simulateAfterProcessNode(extension, element);
-	simulateMouseDown(element);
-
-	expect(mockHtmx.addClass).toHaveBeenCalledWith(element, "htmx-hold-active");
-});
-
-test("skips elements already processed", () => {
-	const extension = setupHoldExtension();
-	const element = createElementWithTrigger("hold delay:500ms");
-
-	// First processing
-	simulateAfterProcessNode(extension, element);
-	expect(element._holdSetup).toBe(true);
-
-	// Reset mock to check if trigger is called again
-	mockHtmx.trigger = mock();
-
-	// Second processing should be skipped
-	simulateAfterProcessNode(extension, element);
-	simulateMouseDown(element);
-
-	// Should still work (listeners were already set up)
-	expect(mockHtmx.addClass).toHaveBeenCalledWith(element, "htmx-hold-active");
-});
-
-test("handles touchcancel events", () => {
-	const extension = setupHoldExtension();
-	const element = createElementWithTrigger("hold delay:500ms");
-
-	simulateAfterProcessNode(extension, element);
-
-	// Touch start
-	simulateTouchStart(element);
-	expect(mockHtmx.addClass).toHaveBeenCalledWith(element, "htmx-hold-active");
-
-	// Touch cancel - should not cause errors
-	element.dispatchEvent(new Event("touchcancel"));
-});
-
-test("ignores elements with no trigger attributes", () => {
-	const extension = setupHoldExtension();
-	const element = createMockElement();
-
-	simulateAfterProcessNode(extension, element);
-
-	expect(element._holdSetup).toBeUndefined();
-});
-
-test("is case sensitive for 'hold' keyword", () => {
-	const extension = setupHoldExtension();
-
-	// Test with uppercase 'Hold' - should not match
-	const element = createElementWithTrigger("Hold delay:500ms");
-	simulateAfterProcessNode(extension, element);
-
-	expect(element._holdSetup).toBeUndefined();
-});
-
-test("handles multiple delay specifications", () => {
-	const extension = setupHoldExtension();
-
-	// Multiple delays - should still work as long as "hold" and "delay" are present
-	const element = createElementWithTrigger("hold delay:100ms delay:200ms");
-	simulateAfterProcessNode(extension, element);
-	simulateMouseDown(element);
-
-	expect(mockHtmx.addClass).toHaveBeenCalledWith(element, "htmx-hold-active");
-});
-
-test("handles complex trigger specifications", () => {
-	const extension = setupHoldExtension();
-
-	const complexTriggers = [
-		"click, hold delay:500ms, mouseover",
-		"hold delay:1000ms changed, submit",
-		"keydown[key=='Enter'], hold delay:300ms",
-	];
-
-	complexTriggers.forEach((trigger) => {
-		const element = createElementWithTrigger(trigger);
-		simulateAfterProcessNode(extension, element);
-		simulateMouseDown(element);
-		expect(mockHtmx.addClass).toHaveBeenCalledWith(element, "htmx-hold-active");
-	});
-});
-
-test("preventDefault is called on hold events", () => {
-	const extension = setupHoldExtension();
-	const element = createElementWithTrigger("hold delay:500ms");
-
-	simulateAfterProcessNode(extension, element);
-
-	const mouseEvent = simulateMouseDown(element);
-	expect(mouseEvent.preventDefault).toHaveBeenCalled();
-
-	const touchEvent = simulateTouchStart(element);
-	expect(touchEvent.preventDefault).toHaveBeenCalled();
-});
-
-test("multiple elements are processed independently", () => {
-	const extension = setupHoldExtension();
-
-	const element1 = createElementWithTrigger("hold delay:500ms");
-	const element2 = createElementWithTrigger("click"); // No hold
-	const element3 = createElementWithTrigger("hold delay:1000ms");
-
-	simulateAfterProcessNode(extension, element1);
-	simulateAfterProcessNode(extension, element2);
-	simulateAfterProcessNode(extension, element3);
-
-	expect(element1._holdSetup).toBe(true);
-	expect(element2._holdSetup).toBeUndefined();
-	expect(element3._holdSetup).toBe(true);
-
-	// Test that each works independently
-	simulateMouseDown(element1);
-	expect(mockHtmx.addClass).toHaveBeenCalledWith(element1, "htmx-hold-active");
-
-	simulateMouseDown(element3);
-	expect(mockHtmx.addClass).toHaveBeenCalledWith(element3, "htmx-hold-active");
-});
-
-test("non-matching events don't trigger hold", () => {
-	const extension = setupHoldExtension();
-	const element = createElementWithTrigger("hold delay:500ms");
-
-	simulateAfterProcessNode(extension, element);
-
-	// Test various non-matching events
-	const events = ["click", "mouseover", "keydown", "scroll"];
-
-	events.forEach((eventType) => {
-		element.dispatchEvent(new Event(eventType));
-	});
-
-	// Hold should not have been triggered
+	expect(mockHtmx.addClass).not.toHaveBeenCalled();
 	expect(mockHtmx.trigger).not.toHaveBeenCalled();
+});
+
+test("activates hold state on mousedown and prevents default", () => {
+	const extension = setupExtension();
+	const element = createElement("hold delay:200ms");
+
+	extension.onEvent?.(HOLD_EVENT, createHoldEvent(element));
+	const event = dispatchStart(element, "mousedown");
+
+	expect(event.defaultPrevented).toBe(true);
+	expect(mockHtmx.addClass).toHaveBeenCalledWith(element, "htmx-hold-active");
+	expect(element.style.getPropertyValue("--hold-progress")).toBe("0");
+	expect(element.dataset.holdProgress).toBe("0");
+});
+
+test("touchstart events also activate hold state", () => {
+	const extension = setupExtension();
+	const element = createElement("hold delay:200ms");
+
+	extension.onEvent?.(HOLD_EVENT, createHoldEvent(element));
+	const event = dispatchStart(element, "touchstart");
+
+	expect(event.defaultPrevented).toBe(true);
+	expect(mockHtmx.addClass).toHaveBeenCalledWith(element, "htmx-hold-active");
+});
+
+test("hold completes after the configured delay and triggers once", () => {
+	const extension = setupExtension();
+	const element = createElement("hold delay:0.2s");
+
+	const callbacks: FrameRequestCallback[] = [];
+	let nextFrameId = 1;
+	const originalRAF = window.requestAnimationFrame;
+	const originalCAF = window.cancelAnimationFrame;
+	const originalNow = Date.now;
+	let now = 0;
+
+	window.requestAnimationFrame = mock((cb: FrameRequestCallback) => {
+		callbacks.push(cb);
+		return nextFrameId++;
+	});
+	window.cancelAnimationFrame = mock((_handle: number) => {});
+	Date.now = () => now;
+
+	try {
+		extension.onEvent?.(HOLD_EVENT, createHoldEvent(element));
+		now = 0;
+		dispatchStart(element, "mousedown");
+
+		expect(callbacks).toHaveLength(1);
+		expect(element.style.getPropertyValue("--hold-progress")).toBe("0");
+		expect(element.dataset.holdProgress).toBe("0");
+
+		now = 100;
+		callbacks[0]?.(now);
+		expect(element.style.getPropertyValue("--hold-progress")).toBe("0.5");
+		expect(element.dataset.holdProgress).toBe("50");
+		expect(window.requestAnimationFrame).toHaveBeenCalledTimes(2);
+
+		now = 210;
+		callbacks[1]?.(now);
+		expect(element.style.getPropertyValue("--hold-progress")).toBe("1");
+		expect(element.dataset.holdProgress).toBe("100");
+		expect(mockHtmx.trigger).toHaveBeenCalledTimes(1);
+		expect(window.cancelAnimationFrame).toHaveBeenCalledWith(2);
+	} finally {
+		window.requestAnimationFrame = originalRAF;
+		window.cancelAnimationFrame = originalCAF;
+		Date.now = originalNow;
+	}
+});
+
+test("uses default delay when no delay is specified", () => {
+	const extension = setupExtension();
+	const element = createElement("hold");
+
+	const callbacks: FrameRequestCallback[] = [];
+	let nextFrameId = 1;
+	const originalRAF = window.requestAnimationFrame;
+	const originalCAF = window.cancelAnimationFrame;
+	const originalNow = Date.now;
+	let now = 0;
+
+	window.requestAnimationFrame = mock((cb: FrameRequestCallback) => {
+		callbacks.push(cb);
+		return nextFrameId++;
+	});
+	window.cancelAnimationFrame = mock((_handle: number) => {});
+	Date.now = () => now;
+
+	try {
+		extension.onEvent?.(HOLD_EVENT, createHoldEvent(element));
+		now = 0;
+		dispatchStart(element, "mousedown");
+
+		expect(callbacks).toHaveLength(1);
+		expect(window.requestAnimationFrame).toHaveBeenCalledTimes(1);
+		expect(element.dataset.holdProgress).toBe("0");
+
+		now = 250;
+		callbacks[0]?.(now);
+		expect(element.style.getPropertyValue("--hold-progress")).toBe("0.5");
+		expect(element.dataset.holdProgress).toBe("50");
+		expect(window.requestAnimationFrame).toHaveBeenCalledTimes(2);
+
+		now = 520;
+		callbacks[1]?.(now);
+		expect(element.style.getPropertyValue("--hold-progress")).toBe("1");
+		expect(element.dataset.holdProgress).toBe("100");
+		expect(mockHtmx.trigger).toHaveBeenCalledWith(element, "hold");
+	} finally {
+		window.requestAnimationFrame = originalRAF;
+		window.cancelAnimationFrame = originalCAF;
+		Date.now = originalNow;
+	}
+});
+
+test("cancelling a hold resets state and cancels animation", () => {
+	const extension = setupExtension();
+	const element = createElement("hold delay:150ms");
+
+	const originalRAF = window.requestAnimationFrame;
+	const originalCAF = window.cancelAnimationFrame;
+	window.requestAnimationFrame = mock((_cb: FrameRequestCallback) => 7);
+	window.cancelAnimationFrame = mock((_handle: number) => {});
+
+	try {
+		extension.onEvent?.(HOLD_EVENT, createHoldEvent(element));
+		dispatchStart(element, "mousedown");
+		dispatchCancel(element, "mouseup");
+
+		expect(window.cancelAnimationFrame).toHaveBeenCalledWith(7);
+		expect(mockHtmx.removeClass).toHaveBeenCalledWith(
+			element,
+			"htmx-hold-active",
+		);
+		expect(element.style.getPropertyValue("--hold-progress")).toBe("0");
+		expect(element.dataset.holdProgress).toBe("0");
+	} finally {
+		window.requestAnimationFrame = originalRAF;
+		window.cancelAnimationFrame = originalCAF;
+	}
+});
+
+test("touchcancel events reset progress and remove active class", () => {
+	const extension = setupExtension();
+	const element = createElement("hold delay:180ms");
+
+	const originalRAF = window.requestAnimationFrame;
+	const originalCAF = window.cancelAnimationFrame;
+	window.requestAnimationFrame = mock((_cb: FrameRequestCallback) => 42);
+	window.cancelAnimationFrame = mock((_handle: number) => {});
+
+	try {
+		extension.onEvent?.(HOLD_EVENT, createHoldEvent(element));
+		dispatchStart(element, "touchstart");
+		element.dispatchEvent(new Event("touchcancel"));
+
+		expect(window.cancelAnimationFrame).toHaveBeenCalledWith(42);
+		expect(mockHtmx.removeClass).toHaveBeenCalledWith(
+			element,
+			"htmx-hold-active",
+		);
+		expect(element.dataset.holdProgress).toBe("0");
+	} finally {
+		window.requestAnimationFrame = originalRAF;
+		window.cancelAnimationFrame = originalCAF;
+	}
+});
+
+test("starting a hold while already active is ignored", () => {
+	const extension = setupExtension();
+	const element = createElement("hold delay:120ms");
+
+	const originalRAF = window.requestAnimationFrame;
+	window.requestAnimationFrame = mock((_cb: FrameRequestCallback) => {
+		// schedule but never invoke during this test
+		return 1;
+	});
+
+	try {
+		extension.onEvent?.(HOLD_EVENT, createHoldEvent(element));
+		const first = dispatchStart(element, "mousedown");
+		expect(first.defaultPrevented).toBe(true);
+		expect(window.requestAnimationFrame).toHaveBeenCalledTimes(1);
+
+		const second = dispatchStart(element, "mousedown");
+		expect(second.defaultPrevented).toBe(false);
+		expect(window.requestAnimationFrame).toHaveBeenCalledTimes(1);
+	} finally {
+		window.requestAnimationFrame = originalRAF;
+	}
+});
+
+test("element processed twice does not register duplicate listeners", () => {
+	const extension = setupExtension();
+	const element = createElement("hold delay:120ms");
+
+	extension.onEvent?.(HOLD_EVENT, createHoldEvent(element));
+	dispatchStart(element, "mousedown");
+	dispatchCancel(element, "mouseup");
+
+	mockHtmx.addClass.mockReset();
+
+	// Re-process the same element
+	extension.onEvent?.(HOLD_EVENT, createHoldEvent(element));
+	dispatchStart(element, "mousedown");
+
+	expect(mockHtmx.addClass).toHaveBeenCalledTimes(1);
+});
+
+test("data-hx-trigger is used when hx-trigger is absent", () => {
+	const extension = setupExtension();
+	const element = createElement();
+	element.setAttribute("data-hx-trigger", "hold delay:250ms");
+
+	extension.onEvent?.(HOLD_EVENT, createHoldEvent(element));
+	dispatchStart(element, "mousedown");
+
+	expect(mockHtmx.addClass).toHaveBeenCalledWith(element, "htmx-hold-active");
+});
+
+test("hold trigger is case sensitive", () => {
+	const extension = setupExtension();
+	const element = createElement("Hold delay:200ms");
+
+	extension.onEvent?.(HOLD_EVENT, createHoldEvent(element));
+	dispatchStart(element, "mousedown");
+
+	expect(mockHtmx.addClass).not.toHaveBeenCalled();
 });
